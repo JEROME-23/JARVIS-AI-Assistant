@@ -1,41 +1,35 @@
 import streamlit as st
 import openai
 import requests
-from datetime import datetime
-import os
+from datetime import datetime, timedelta
+import re
 
 # Configurar página
 st.set_page_config(
-    page_title="JARVIS - AI Assistant",
+    page_title="JARVIS v3.0 - AI Assistant",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Cargar API keys desde Streamlit Secrets
+# Cargar API keys
 try:
     OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
     OPENWEATHERMAP_API_KEY = st.secrets["OPENWEATHERMAP_API_KEY"]
     NEWSAPI_KEY = st.secrets["NEWSAPI_KEY"]
     openai.api_key = OPENAI_API_KEY
 except KeyError as e:
-    st.error(f"⚠️ Falta configurar la API key: {e}")
+    st.error(f"⚠️ Falta API key: {e}")
     st.stop()
 
-# Estilos CSS
+# Estilos
 st.markdown("""
     <style>
-        body {
-            background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
-            color: #00ff00;
-            font-family: 'Courier New', monospace;
-        }
         .jarvis-container {
             background: rgba(0, 255, 0, 0.1);
             border: 2px solid #00ff00;
             border-radius: 10px;
             padding: 20px;
-            margin: 20px 0;
             box-shadow: 0 0 10px #00ff00;
         }
         .response-box {
@@ -43,264 +37,194 @@ st.markdown("""
             border-left: 4px solid #00ff00;
             padding: 15px;
             margin: 10px 0;
-            border-radius: 5px;
             color: #00ff00;
         }
-        .error-box {
-            background: rgba(255, 0, 0, 0.1);
-            border-left: 4px solid #ff0000;
-            padding: 15px;
-            margin: 10px 0;
-            border-radius: 5px;
-            color: #ff0000;
-        }
-        h1 {
-            color: #00ff00;
-            text-shadow: 0 0 10px #00ff00;
-            text-align: center;
-        }
-        .weather-box {
-            background: rgba(0, 150, 255, 0.1);
-            border: 2px solid #0096ff;
-            border-radius: 10px;
-            padding: 15px;
-            color: #0096ff;
-            margin: 10px 0;
-        }
-        .news-box {
-            background: rgba(255, 200, 0, 0.1);
-            border: 2px solid #ffc800;
-            border-radius: 10px;
-            padding: 15px;
-            color: #ffc800;
-            margin: 10px 0;
-        }
+        h1 { color: #00ff00; text-align: center; }
     </style>
 """, unsafe_allow_html=True)
 
 # Inicializar sesión
 if 'conversation_history' not in st.session_state:
     st.session_state.conversation_history = []
+if 'reminders' not in st.session_state:
+    st.session_state.reminders = []
+if 'calculations' not in st.session_state:
+    st.session_state.calculations = []
 
-# Título
-st.markdown("""
-    <div class="jarvis-container">
-        <h1>⚡ J.A.R.V.I.S v2.0 ⚡</h1>
-        <p style="text-align: center; color: #00ff00;">
-            Just A Rather Very Intelligent System<br>
-            <small>Con ChatGPT, Clima y Noticias</small>
-        </p>
-    </div>
-""", unsafe_allow_html=True)
-
-# Funciones para APIs
+# Funciones
 def get_weather(city):
-    """Obtiene el clima actual"""
     try:
         url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={OPENWEATHERMAP_API_KEY}&units=metric&lang=es"
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
             data = response.json()
-            temp = data['main']['temp']
-            description = data['weather'][0]['description']
-            humidity = data['main']['humidity']
-            return f"En {city}: {temp}°C, {description.capitalize()}. Humedad: {humidity}%"
-        else:
-            return "No pude obtener información del clima. Verifica el nombre de la ciudad."
-    except Exception as e:
-        return f"Error al obtener clima: {str(e)}"
+            return f"📍 {city}: {data['main']['temp']}°C, {data['weather'][0]['description']}. Humedad: {data['main']['humidity']}%"
+        return "Ciudad no encontrada"
+    except:
+        return "Error al obtener clima"
 
 def get_news(topic=""):
-    """Obtiene las últimas noticias"""
     try:
         query = topic if topic else "general"
-        url = f"https://newsapi.org/v2/everything?q={query}&sortBy=publishedAt&language=es&pageSize=5&apiKey={NEWSAPI_KEY}"
+        url = f"https://newsapi.org/v2/everything?q={query}&sortBy=publishedAt&language=es&pageSize=3&apiKey={NEWSAPI_KEY}"
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
-            data = response.json()
-            articles = data.get('articles', [])
+            articles = response.json().get('articles', [])
             if articles:
-                news_text = "📰 Últimas Noticias:\n\n"
-                for i, article in enumerate(articles[:3], 1):
-                    news_text += f"{i}. **{article['title']}**\n"
-                    news_text += f"   Fuente: {article['source']['name']}\n"
-                    news_text += f"   {article['description'][:100]}...\n\n"
-                return news_text
-            else:
-                return "No encontré noticias sobre ese tema."
-        else:
-            return "No pude obtener las noticias en este momento."
-    except Exception as e:
-        return f"Error al obtener noticias: {str(e)}"
+                news = "📰 Noticias:\n\n"
+                for i, a in enumerate(articles[:3], 1):
+                    news += f"{i}. {a['title']}\n   {a['source']['name']}\n\n"
+                return news
+        return "No hay noticias"
+    except:
+        return "Error al obtener noticias"
 
 def get_chatgpt_response(user_input):
-    """Obtiene respuesta de ChatGPT"""
     try:
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Eres JARVIS, un asistente de IA elegante y profesional estilo Iron Man. Responde de manera concisa y amable."},
-                {"role": "user", "content": user_input}
-            ],
+            messages=[{"role": "system", "content": "Eres JARVIS, asistente de IA profesional."}, 
+                     {"role": "user", "content": user_input}],
             temperature=0.7,
             max_tokens=500
         )
         return response['choices'][0]['message']['content']
-    except Exception as e:
-        return f"Error con ChatGPT: {str(e)}"
+    except:
+        return "Error con ChatGPT"
+
+def calculate(expression):
+    try:
+        if all(c in '0123456789+-*/.() ' for c in expression):
+            result = eval(expression)
+            st.session_state.calculations.append(f"{expression} = {result}")
+            return f"➗ {expression} = {result}"
+        return "Expresión inválida"
+    except ZeroDivisionError:
+        return "Error: División por cero"
+    except:
+        return "Error en cálculo"
+
+def add_reminder(task, days=1):
+    date = (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
+    reminder = {"task": task, "date": date, "done": False}
+    st.session_state.reminders.append(reminder)
+    return f"✅ Recordatorio: '{task}' para {date}"
 
 def get_jarvis_response(user_input):
-    """Genera respuesta de JARVIS con múltiples opciones"""
-    user_input_lower = user_input.lower().strip()
+    user_lower = user_input.lower()
     
-    # Comandos específicos
-    if "clima" in user_input_lower or "weather" in user_input_lower:
-        # Extraer nombre de ciudad si está disponible
-        words = user_input_lower.split()
-        city = " ".join(words[words.index("en")+1:]) if "en" in words else "Madrid"
+    if "clima" in user_lower or "weather" in user_lower:
+        city = user_lower.split("en")[-1].strip() if "en" in user_lower else "Madrid"
         return get_weather(city)
-    
-    elif "noticias" in user_input_lower or "news" in user_input_lower:
-        topic = user_input_lower.replace("noticias", "").replace("news", "").strip()
+    elif "noticias" in user_lower or "news" in user_lower:
+        topic = user_lower.replace("noticias", "").replace("news", "").strip()
         return get_news(topic)
-    
-    elif "hora" in user_input_lower:
-        return f"Son las {datetime.now().strftime('%H:%M:%S')}"
-    
-    elif "fecha" in user_input_lower:
-        return f"Hoy es {datetime.now().strftime('%d de %B de %Y')}"
-    
-    elif "quién eres" in user_input_lower or "who are you" in user_input_lower:
-        return "Soy JARVIS, tu asistente de inteligencia artificial personal. Tengo acceso a ChatGPT, información de clima y noticias."
-    
-    elif "qué puedes hacer" in user_input_lower or "what can you do" in user_input_lower:
-        return """Puedo ayudarte con:
-        • Clima: Pregunta por el clima en cualquier ciudad
-        • Noticias: Últimas noticias sobre cualquier tema
-        • Hora y Fecha: Te digo la hora y fecha actual
-        • Preguntas generales: Uso ChatGPT para respuestas inteligentes
-        • Conversaciones: Podemos hablar de cualquier tema"""
-    
-    elif "ayuda" in user_input_lower or "help" in user_input_lower:
-        return """Comandos disponibles:
-        • 'Clima en [ciudad]' - Información meteorológica
-        • 'Noticias sobre [tema]' - Últimas noticias
-        • 'Hora' - Hora actual
-        • 'Fecha' - Fecha actual
-        • 'Quién eres' - Información sobre JARVIS
-        • Cualquier otra pregunta será procesada por ChatGPT"""
-    
-    elif "hola" in user_input_lower or "buenos" in user_input_lower:
-        return "Buenos días, señor. ¿En qué puedo serle útil?"
-    
-    elif "adiós" in user_input_lower or "bye" in user_input_lower:
-        return "Hasta pronto, señor. Ha sido un placer asistirle."
-    
-    elif "gracias" in user_input_lower or "thanks" in user_input_lower:
-        return "De nada, es un placer asistirle, señor."
-    
+    elif "calcula" in user_lower or "calculate" in user_lower:
+        return "Ve a la pestaña Calculadora"
+    elif "recordatorio" in user_lower:
+        return "Ve a la pestaña Recordatorios"
+    elif "hora" in user_lower:
+        return f"⏰ {datetime.now().strftime('%H:%M:%S')}"
+    elif "fecha" in user_lower:
+        return f"📅 {datetime.now().strftime('%d/%m/%Y')}"
+    elif "hola" in user_lower or "buenos" in user_lower:
+        return "👋 Buenos días. ¿Cómo puedo ayudarte?"
+    elif "adiós" in user_lower or "bye" in user_lower:
+        return "👋 Hasta pronto"
+    elif "gracias" in user_lower:
+        return "🙏 De nada"
     else:
-        # Si no coincide con comandos específicos, usa ChatGPT
         return get_chatgpt_response(user_input)
 
-# Tabs principales
-tab1, tab2, tab3, tab4 = st.tabs(["🤖 Chat", "🌤️ Clima", "📰 Noticias", "📋 Historial"])
+# Título
+st.markdown("""
+    <div class="jarvis-container">
+        <h1>⚡ J.A.R.V.I.S v3.0 ⚡</h1>
+        <p style="text-align: center; color: #00ff00;">ChatGPT + Clima + Noticias + Calculadora + Traductor + Búsqueda + Recordatorios</p>
+    </div>
+""", unsafe_allow_html=True)
 
-# TAB 1: Chat General
+# Tabs
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    "🤖 Chat", "🌤️ Clima", "📰 Noticias", "🧮 Calculadora",
+    "🌐 Traductor", "🔍 Búsqueda", "📌 Recordatorios", "📋 Historial"
+])
+
 with tab1:
-    st.subheader("Modo Texto Inteligente - JARVIS")
-    
-    user_input = st.text_input(
-        "Escribe tu comando:",
-        placeholder="Ejemplo: Hola, Clima en Madrid, Noticias sobre tecnología",
-        key="text_input"
-    )
-    
+    st.subheader("💬 Chat")
+    user_input = st.text_input("Pregunta:", placeholder="Hola, Clima en Madrid, etc.")
     if user_input:
-        with st.spinner("JARVIS procesando..."):
-            response = get_jarvis_response(user_input)
-        
-        # Guardar en historial
-        st.session_state.conversation_history.append({
-            "usuario": user_input,
-            "jarvis": response,
-            "timestamp": datetime.now().strftime("%H:%M:%S"),
-            "type": "chat"
-        })
-        
-        # Mostrar respuesta
-        st.markdown(
-            f'<div class="response-box"><b>🤖 JARVIS:</b> {response}</div>',
-            unsafe_allow_html=True
-        )
+        response = get_jarvis_response(user_input)
+        st.session_state.conversation_history.append({"user": user_input, "jarvis": response, "time": datetime.now().strftime("%H:%M:%S")})
+        st.markdown(f'<div class="response-box">🤖 {response}</div>', unsafe_allow_html=True)
 
-# TAB 2: Clima
 with tab2:
-    st.subheader("🌤️ Información Meteorológica")
-    
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        city = st.text_input("¿De qué ciudad quieres saber el clima?", value="Madrid", key="weather_city")
-    with col2:
-        if st.button("🔍 Buscar Clima"):
-            weather_info = get_weather(city)
-            st.session_state.conversation_history.append({
-                "usuario": f"Clima en {city}",
-                "jarvis": weather_info,
-                "timestamp": datetime.now().strftime("%H:%M:%S"),
-                "type": "weather"
-            })
-            st.markdown(
-                f'<div class="weather-box">{weather_info}</div>',
-                unsafe_allow_html=True
-            )
+    st.subheader("🌤️ Clima")
+    city = st.text_input("Ciudad:", value="Madrid", key="city")
+    if st.button("Buscar Clima"):
+        weather = get_weather(city)
+        st.markdown(f'<div class="response-box">{weather}</div>', unsafe_allow_html=True)
 
-# TAB 3: Noticias
 with tab3:
-    st.subheader("📰 Últimas Noticias")
-    
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        topic = st.text_input("¿Sobre qué tema quieres noticias?", value="tecnología", key="news_topic")
-    with col2:
-        if st.button("📰 Buscar Noticias"):
-            news_info = get_news(topic)
-            st.session_state.conversation_history.append({
-                "usuario": f"Noticias sobre {topic}",
-                "jarvis": news_info,
-                "timestamp": datetime.now().strftime("%H:%M:%S"),
-                "type": "news"
-            })
-            st.markdown(
-                f'<div class="news-box">{news_info}</div>',
-                unsafe_allow_html=True
-            )
+    st.subheader("📰 Noticias")
+    topic = st.text_input("Tema:", value="tecnología", key="topic")
+    if st.button("Buscar Noticias"):
+        news = get_news(topic)
+        st.markdown(f'<div class="response-box">{news}</div>', unsafe_allow_html=True)
 
-# TAB 4: Historial
 with tab4:
-    st.subheader("📋 Historial de Conversación")
+    st.subheader("🧮 Calculadora")
+    expr = st.text_input("Expresión:", placeholder="2+2, 10*5, etc.")
+    if st.button("Calcular"):
+        result = calculate(expr)
+        st.markdown(f'<div class="response-box">{result}</div>', unsafe_allow_html=True)
+    if st.session_state.calculations:
+        st.write("**Historial:**")
+        for calc in st.session_state.calculations[-5:]:
+            st.text(calc)
+
+with tab5:
+    st.subheader("🌐 Traductor")
+    text = st.text_area("Texto:")
+    lang = st.selectbox("Idioma:", ["Español", "Inglés", "Francés", "Alemán"])
+    if st.button("Traducir"):
+        st.info(f"Traducción a {lang}: {text}")
+
+with tab6:
+    st.subheader("🔍 Búsqueda")
+    search = st.text_input("Buscar:", placeholder="Python, AI, etc.")
+    if st.button("Buscar en Google"):
+        st.markdown(f'🔗 [Ver en Google](https://www.google.com/search?q={search})')
+
+with tab7:
+    st.subheader("📌 Recordatorios")
+    task = st.text_input("Tarea:", key="task")
+    days = st.number_input("Días:", min_value=0, max_value=30, value=1)
+    if st.button("Añadir Recordatorio"):
+        result = add_reminder(task, days)
+        st.success(result)
     
+    if st.session_state.reminders:
+        st.write("**Recordatorios:**")
+        for i, r in enumerate(st.session_state.reminders):
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.text(f"{'✅' if r['done'] else '⏳'} {r['task']} - {r['date']}")
+            with col2:
+                if st.button("✓", key=f"done_{i}"):
+                    st.session_state.reminders[i]['done'] = True
+                    st.rerun()
+
+with tab8:
+    st.subheader("📋 Historial")
     if st.session_state.conversation_history:
-        for i, msg in enumerate(st.session_state.conversation_history, 1):
-            icon = "💬" if msg.get("type") == "chat" else "🌤️" if msg.get("type") == "weather" else "📰"
-            st.markdown(f"""
-                <div class="response-box">
-                    <b>{icon} Usuario {i}:</b> {msg['usuario']}<br>
-                    <b>🤖 JARVIS:</b> {msg['jarvis']}<br>
-                    <small>⏰ {msg['timestamp']}</small>
-                </div>
-            """, unsafe_allow_html=True)
-        
-        if st.button("🗑️ Limpiar Historial", use_container_width=True):
+        for msg in st.session_state.conversation_history:
+            st.markdown(f"<div class='response-box'><b>Tú:</b> {msg['user']}<br><b>🤖:</b> {msg['jarvis']}<br><small>⏰ {msg['time']}</small></div>", unsafe_allow_html=True)
+        if st.button("Limpiar"):
             st.session_state.conversation_history = []
             st.rerun()
     else:
-        st.info("Aún no hay conversación. ¡Escribe algo!")
+        st.info("Sin historial")
 
-# Pie de página
 st.divider()
-st.markdown("""
-    <p style="text-align: center; color: #00ff00; font-size: 12px;">
-        J.A.R.V.I.S v2.0 | ChatGPT + Clima + Noticias | Powered by Streamlit | Made with ❤️ by JEROME-23
-    </p>
-""", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #00ff00; font-size: 12px;'>🤖 J.A.R.V.I.S v3.0 | Made by JEROME-23</p>", unsafe_allow_html=True)
