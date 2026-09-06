@@ -1,9 +1,20 @@
 import streamlit as st
 import speech_recognition as sr
-import pyttsx3
 import os
-from dotenv import load_dotenv
 from datetime import datetime
+import sys
+
+# Detectar si está en Streamlit Cloud
+is_cloud = "streamlit" in sys.modules and os.getenv("STREAMLIT_SERVER_PORT") is not None
+
+# Solo importar pyttsx3 si NO está en la nube
+if not is_cloud:
+    try:
+        import pyttsx3
+    except ImportError:
+        pyttsx3 = None
+else:
+    pyttsx3 = None
 
 # Configurar página
 st.set_page_config(
@@ -47,14 +58,20 @@ st.markdown("""
 # Inicializar sesión
 if 'conversation_history' not in st.session_state:
     st.session_state.conversation_history = []
-if 'engine' not in st.session_state:
-    engine = pyttsx3.init()
-    engine.setProperty('rate', 120)
-    engine.setProperty('volume', 0.9)
-    voices = engine.getProperty('voices')
-    if len(voices) > 0:
-        engine.setProperty('voice', voices[0].id)
-    st.session_state.engine = engine
+
+if 'engine' not in st.session_state and pyttsx3 is not None:
+    try:
+        engine = pyttsx3.init()
+        engine.setProperty('rate', 120)
+        engine.setProperty('volume', 0.9)
+        voices = engine.getProperty('voices')
+        if len(voices) > 0:
+            engine.setProperty('voice', voices[0].id)
+        st.session_state.engine = engine
+    except Exception as e:
+        st.session_state.engine = None
+else:
+    st.session_state.engine = None
 
 # Título
 st.markdown("""
@@ -67,11 +84,20 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def speak(text):
-    engine = st.session_state.engine
-    engine.say(text)
-    engine.runAndWait()
+    """Hace que JARVIS hable (solo en local)"""
+    if st.session_state.engine is not None:
+        try:
+            engine = st.session_state.engine
+            engine.say(text)
+            engine.runAndWait()
+        except Exception as e:
+            st.warning(f"⚠️ No se pudo reproducir audio: {str(e)}")
+    else:
+        if is_cloud:
+            st.info("📱 En la nube: usa modo texto. Para escuchar, descarga la app local.")
 
 def listen():
+    """Escucha el micrófono del usuario"""
     recognizer = sr.Recognizer()
     try:
         with sr.Microphone() as source:
@@ -84,24 +110,26 @@ def listen():
         st.warning("❌ No entendí lo que dijiste")
         return None
     except sr.RequestError:
-        st.error("❌ Error de conexión")
+        st.error("❌ Error de conexión con Google Speech Recognition")
         return None
     except Exception as e:
         st.error(f"❌ Error: {str(e)}")
         return None
 
 def get_jarvis_response(user_input):
+    """Genera respuesta de JARVIS"""
     user_input_lower = user_input.lower()
     
     responses = {
         "hola": "Buenos días, señor. ¿En qué puedo serle útil?",
         "hora": f"Son las {datetime.now().strftime('%H:%M:%S')}",
         "fecha": f"Hoy es {datetime.now().strftime('%d de %B de %Y')}",
-        "clima": "Lo siento señor, necesitaría conexión a datos de clima",
-        "quién eres": "Soy JARVIS, su asistente de inteligencia artificial",
-        "qué puedes hacer": "Puedo escuchar comandos y responder preguntas",
+        "clima": "Lo siento señor, necesitaría conexión a datos de clima en tiempo real",
+        "quién eres": "Soy JARVIS, su asistente de inteligencia artificial personal",
+        "qué puedes hacer": "Puedo escuchar comandos, decirte la hora, responder preguntas y mucho más",
         "adiós": "Hasta pronto, señor",
         "gracias": "De nada, es un placer asistirle",
+        "ayuda": "Puedo ayudarte con comandos de voz o texto. Prueba: 'Hola', 'Hora', 'Fecha'",
     }
     
     for keyword, response in responses.items():
@@ -109,6 +137,10 @@ def get_jarvis_response(user_input):
             return response
     
     return "Entiendo, señor. He procesado su solicitud: " + user_input
+
+# Mostrar aviso si está en la nube
+if is_cloud:
+    st.warning("📡 Ejecutándose en Streamlit Cloud - Modo texto disponible. Para voz, ejecuta localmente.")
 
 tab1, tab2, tab3 = st.tabs(["🎤 Voz", "⌨️ Texto", "📋 Historial"])
 
@@ -126,7 +158,9 @@ with tab1:
                     "jarvis": response,
                     "timestamp": datetime.now().strftime("%H:%M:%S")
                 })
-                st.markdown(f'<div class="response-box"><b>JARVIS:</b> {response}</div>', unsafe_allow_html=True)
+                
+                st.markdown(f'<div class="response-box"><b>JARVIS:</b> {response}</div>', 
+                           unsafe_allow_html=True)
                 speak(response)
     
     with col2:
@@ -144,7 +178,10 @@ with tab2:
             "jarvis": response,
             "timestamp": datetime.now().strftime("%H:%M:%S")
         })
-        st.markdown(f'<div class="response-box"><b>JARVIS:</b> {response}</div>', unsafe_allow_html=True)
+        
+        st.markdown(f'<div class="response-box"><b>JARVIS:</b> {response}</div>', 
+                   unsafe_allow_html=True)
+        
         if st.checkbox("🔊 Reproducir en voz", key="speak_checkbox"):
             speak(response)
 
@@ -166,6 +203,7 @@ with tab3:
     else:
         st.info("Aún no hay conversación")
 
+# Pie de página
 st.markdown("""
     <hr>
     <p style="text-align: center; color: #00ff00; font-size: 12px;">
