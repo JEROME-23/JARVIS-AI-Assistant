@@ -1,4 +1,4 @@
-# 🤖 J.A.R.V.I.S - AI Assistant
+# 🤖ñ J.A.R.V.I.S - AI Assistant
 
 **Just A Rather Very Intelligent System** - Un asistente de IA inspirado en JARVIS de Iron Man, creado con Streamlit.
 
@@ -6,16 +6,16 @@
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-red)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-## 🌟 Características
+## Características
 
-✨ **Reconocimiento de Voz** - Escucha comandos en español  
-🔊 **Síntesis de Voz** - Responde con texto a voz  
-⚡ **Interfaz Elegante** - Diseño estilo Iron Man  
-📱 **Compatible con iPhone** - Acceso desde cualquier dispositivo  
-💬 **Historial de Conversación** - Guarda todas tus interacciones  
-🎯 **Múltiples Modos** - Voz y texto  
-
-## 🚀 Inicio Rápido
+ **Reconocimiento de Voz** - Escucha comandos en español  
+ **Síntesis de Voz** - Responde con texto a voz  
+ **Interfaz Elegante** - Diseño estilo Iron Man  
+ **Compatible con iPhone** - Acceso desde cualquier dispositivo  
+ **Historial de Conversación** - Guarda todas tus interacciones  
+ **Múltiples Modos** - Voz y texto  
+ 
+##  Inicio Rápido
 
 ### En tu Computadora
 
@@ -50,19 +50,19 @@ streamlit run jarvis_app.py --server.address 0.0.0.0
 
 Luego en Safari: `http://TU_IP_LOCAL:8501`
 
-## 🎮 Cómo Usar
+##  Cómo Usar
 
-### Modo Voz 🎤
-1. Haz clic en "🎤 Escuchar Comando"
+### Modo Voz 
+1. Haz clic en "Escuchar Comando"
 2. Habla tu comando en español
 3. JARVIS responde
 
 ### Modo Texto ⌨️
 1. Escribe tu comando
 2. Presiona Enter
-3. Marca "🔊 Reproducir" para escuchar
+3. Marca " Reproducir" para escuchar
 
-## 📝 Comandos Disponibles
+##  Comandos Disponibles
 
 - "Hola" - Saludo
 - "Hora" - Muestra la hora
@@ -75,11 +75,11 @@ Luego en Safari: `http://TU_IP_LOCAL:8501`
 
 MIT License - Ver LICENSE
 
-## 🙏 Créditos
+##  Créditos
 
 Inspirado en JARVIS de Iron Man  
 Desarrollado con Streamlit
 
 ---
 
-**⚡ Made with ❤️ by JEROME-23**
+** Made with ❤️ by JEROME-23**
