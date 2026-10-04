@@ -1,8 +1,8 @@
 import streamlit as st
-import openai
 import requests
+import google.generativeai as genai
+import json
 from datetime import datetime, timedelta
-import re
 
 # Configurar página
 st.set_page_config(
@@ -14,10 +14,10 @@ st.set_page_config(
 
 # Cargar API keys
 try:
-    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     OPENWEATHERMAP_API_KEY = st.secrets["OPENWEATHERMAP_API_KEY"]
     NEWSAPI_KEY = st.secrets["NEWSAPI_KEY"]
-    openai.api_key = OPENAI_API_KEY
+    genai.configure(api_key=GEMINI_API_KEY)
 except KeyError as e:
     st.error(f"⚠️ Falta API key: {e}")
     st.stop()
@@ -52,6 +52,7 @@ if 'calculations' not in st.session_state:
     st.session_state.calculations = []
 
 # Funciones
+
 def get_weather(city):
     try:
         url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={OPENWEATHERMAP_API_KEY}&units=metric&lang=es"
@@ -60,8 +61,9 @@ def get_weather(city):
             data = response.json()
             return f"📍 {city}: {data['main']['temp']}°C, {data['weather'][0]['description']}. Humedad: {data['main']['humidity']}%"
         return "Ciudad no encontrada"
-    except:
+    except Exception:
         return "Error al obtener clima"
+
 
 def get_news(topic=""):
     try:
@@ -76,21 +78,111 @@ def get_news(topic=""):
                     news += f"{i}. {a['title']}\n   {a['source']['name']}\n\n"
                 return news
         return "No hay noticias"
-    except:
+    except Exception:
         return "Error al obtener noticias"
 
-def get_chatgpt_response(user_input):
+
+def parse_json_response(text):
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "system", "content": "Eres JARVIS, asistente de IA profesional."}, 
-                     {"role": "user", "content": user_input}],
-            temperature=0.7,
-            max_tokens=500
+        cleaned = text.strip()
+        if "```" in cleaned:
+            cleaned = cleaned.replace("```json", "").replace("```", "").strip()
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:].strip()
+        if cleaned.startswith("{") and cleaned.endswith("}"):
+            return json.loads(cleaned)
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            return json.loads(cleaned[start:end+1])
+    except Exception:
+        pass
+    return {"intent": "general", "confidence": 0.0}
+
+
+def detect_intent(user_input, history=None):
+    try:
+        history = history or []
+        context = ""
+        if history:
+            recent = history[-5:]
+            context = "\n".join(
+                f"Usuario: {item['user']}\nJARVIS: {item['jarvis']}" for item in recent
+            )
+
+        prompt = f"""
+        Analiza la intención del usuario usando el contexto de la conversación.
+        Devuelve SOLO un JSON válido con este formato exacto:
+        {{"intent":"clima|noticias|calculo|recordatorio|hora|fecha|saludo|despedida|gracias|general","city":"ciudad si aplica","topic":"tema si aplica","task":"tarea si aplica","confidence":0.0-1.0}}
+
+        Contexto previo:
+        {context}
+
+        Usuario: {user_input}
+        """
+
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(prompt)
+        return parse_json_response(response.text)
+    except Exception:
+        user_lower = user_input.lower()
+        if "clima" in user_lower or "weather" in user_lower:
+            return {"intent": "clima", "city": "Madrid", "confidence": 0.9}
+        if "noticias" in user_lower or "news" in user_lower:
+            return {"intent": "noticias", "topic": "tecnología", "confidence": 0.9}
+        if "calcula" in user_lower or "calculate" in user_lower:
+            return {"intent": "calculo", "confidence": 0.9}
+        if "recordatorio" in user_lower or "reminder" in user_lower:
+            return {"intent": "recordatorio", "confidence": 0.9}
+        if "hora" in user_lower:
+            return {"intent": "hora", "confidence": 0.9}
+        if "fecha" in user_lower:
+            return {"intent": "fecha", "confidence": 0.9}
+        if "hola" in user_lower or "buenos" in user_lower or "buenas" in user_lower:
+            return {"intent": "saludo", "confidence": 0.9}
+        if "adiós" in user_lower or "bye" in user_lower or "adios" in user_lower:
+            return {"intent": "despedida", "confidence": 0.9}
+        if "gracias" in user_lower:
+            return {"intent": "gracias", "confidence": 0.9}
+        return {"intent": "general", "confidence": 0.0}
+
+
+def get_gemini_response(user_input, history=None):
+    try:
+        history = history or []
+        context = ""
+        if history:
+            recent = history[-6:]
+            context = "\n".join(
+                f"Usuario: {item['user']}\nJARVIS: {item['jarvis']}" for item in recent
+            )
+
+        system_instruction = """
+        Eres JARVIS, un asistente inteligente, profesional y avanzado.
+        Responde en español.
+        Usa el contexto previo de la conversación.
+        Si falta información, pregunta una aclaración breve.
+        Si es posible, responde con estructura clara, útil y profunda.
+        Mantén una personalidad técnica, elegante y útil.
+        """
+
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            system_instruction=system_instruction
         )
-        return response['choices'][0]['message']['content']
-    except:
-        return "Error con ChatGPT"
+
+        prompt = f"""
+        Contexto de la conversación:
+        {context}
+
+        Usuario: {user_input}
+        """
+
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        return f"Error con Gemini: {e}"
+
 
 def calculate(expression):
     try:
@@ -101,8 +193,9 @@ def calculate(expression):
         return "Expresión inválida"
     except ZeroDivisionError:
         return "Error: División por cero"
-    except:
+    except Exception:
         return "Error en cálculo"
+
 
 def add_reminder(task, days=1):
     date = (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
@@ -110,41 +203,46 @@ def add_reminder(task, days=1):
     st.session_state.reminders.append(reminder)
     return f"✅ Recordatorio: '{task}' para {date}"
 
+
 def get_jarvis_response(user_input):
-    user_lower = user_input.lower()
-    
-    if "clima" in user_lower or "weather" in user_lower:
-        city = user_lower.split("en")[-1].strip() if "en" in user_lower else "Madrid"
+    history = st.session_state.conversation_history
+    intent_data = detect_intent(user_input, history)
+    intent = intent_data.get("intent", "general")
+
+    if intent == "clima":
+        city = intent_data.get("city") or "Madrid"
         return get_weather(city)
-    elif "noticias" in user_lower or "news" in user_lower:
-        topic = user_lower.replace("noticias", "").replace("news", "").strip()
+    elif intent == "noticias":
+        topic = intent_data.get("topic") or "tecnología"
         return get_news(topic)
-    elif "calcula" in user_lower or "calculate" in user_lower:
+    elif intent == "calculo":
         return "Ve a la pestaña Calculadora"
-    elif "recordatorio" in user_lower:
+    elif intent == "recordatorio":
         return "Ve a la pestaña Recordatorios"
-    elif "hora" in user_lower:
+    elif intent == "hora":
         return f"⏰ {datetime.now().strftime('%H:%M:%S')}"
-    elif "fecha" in user_lower:
+    elif intent == "fecha":
         return f"📅 {datetime.now().strftime('%d/%m/%Y')}"
-    elif "hola" in user_lower or "buenos" in user_lower:
+    elif intent == "saludo":
         return "👋 Buenos días. ¿Cómo puedo ayudarte?"
-    elif "adiós" in user_lower or "bye" in user_lower:
+    elif intent == "despedida":
         return "👋 Hasta pronto"
-    elif "gracias" in user_lower:
+    elif intent == "gracias":
         return "🙏 De nada"
     else:
-        return get_chatgpt_response(user_input)
+        return get_gemini_response(user_input, history)
+
 
 # Título
 st.markdown("""
     <div class="jarvis-container">
         <h1>⚡ J.A.R.V.I.S v3.0 ⚡</h1>
-        <p style="text-align: center; color: #00ff00;">ChatGPT + Clima + Noticias + Calculadora + Traductor + Búsqueda + Recordatorios</p>
+        <p style="text-align: center; color: #00ff00;">Gemini + Clima + Noticias + Calculadora + Traductor + Búsqueda + Recordatorios</p>
     </div>
 """, unsafe_allow_html=True)
 
 # Tabs
+
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🤖 Chat", "🌤️ Clima", "📰 Noticias", "🧮 Calculadora",
     "🌐 Traductor", "🔍 Búsqueda", "📌 Recordatorios", "📋 Historial"
@@ -152,7 +250,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
 
 with tab1:
     st.subheader("💬 Chat")
-    user_input = st.text_input("Pregunta:", placeholder="Hola, Clima en Madrid, etc.")
+    user_input = st.text_input("Pregunta:", placeholder="Hola, clima en Madrid, etc.")
     if user_input:
         response = get_jarvis_response(user_input)
         st.session_state.conversation_history.append({"user": user_input, "jarvis": response, "time": datetime.now().strftime("%H:%M:%S")})
@@ -203,7 +301,7 @@ with tab7:
     if st.button("Añadir Recordatorio"):
         result = add_reminder(task, days)
         st.success(result)
-    
+
     if st.session_state.reminders:
         st.write("**Recordatorios:**")
         for i, r in enumerate(st.session_state.reminders):
